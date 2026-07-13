@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>RBC Next Best Action Demonstration</title>
-<script type="text/javascript" src="https://cdn.c360a.salesforce.com/beacon/c360a/6ac190d2-56d8-4600-8e83-007537e3f2ff/scripts/c360a.min.js"></script>
+<title>RBC | Offers Picked For You</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
@@ -100,7 +99,18 @@
       <h2 class="text-xl md:text-2xl font-bold text-rbcnavy">Featured for you</h2>
       <span class="text-xs text-slate-500 hidden sm:inline">Showing 3 of many offers</span>
     </div>
-    <div id="offers-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6"></div>
+    <!--
+      PERSONALIZATION TARGET
+      Stable, static ID for Web Personalization Manager / SDK targeting: #offers-grid
+      Do not rename. Do not nest inside elements that change class names dynamically.
+      This container renders skeleton placeholders until real content is injected
+      by window.RBCPersonalization.renderOffers(offersArray) — see script below.
+    -->
+    <div id="offers-grid" data-personalization-zone="offers-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="animate-pulse bg-slate-100 rounded-lg h-72"></div>
+      <div class="animate-pulse bg-slate-100 rounded-lg h-72"></div>
+      <div class="animate-pulse bg-slate-100 rounded-lg h-72"></div>
+    </div>
   </section>
 
   <!-- Help footer strip -->
@@ -189,37 +199,78 @@
     }
   ];
 
-  // ---- Render cards ----
-  const grid = document.getElementById('offers-grid');
+  // =====================================================================
+  // PERSONALIZATION INTEGRATION CONTRACT
+  //
+  // This block replaces the old "render once on load" logic. Instead, it
+  // exposes window.RBCPersonalization.renderOffers(offersArray), which is
+  // the single entry point for injecting content into #offers-grid —
+  // whether that's this file's own fallback data, or a payload returned
+  // by Salesforce Personalization (e.g. from a campaign/decision response
+  // handled in your Interactions SDK callback).
+  //
+  // Each item in offersArray must match this shape:
+  // { id, category, badge, icon, title, subtitle, summary, details[], disclaimer, cta }
+  //
+  // WPM / selector note: target the container by its stable ID, #offers-grid.
+  // Do not target the individual .card-lift divs directly — they are
+  // regenerated on every renderOffers() call, so any WPM edit made
+  // directly to a card element will be wiped out on the next render.
+  // =====================================================================
 
-  offers.forEach(offer => {
-    const card = document.createElement('div');
-    card.className = 'card-lift bg-white border border-slate-200 rounded-lg overflow-hidden flex flex-col';
-    card.innerHTML = `
-      <div class="h-32 bg-rbcskylight flex items-center justify-center text-5xl">
-        ${offer.icon}
-      </div>
-      <div class="p-5 flex flex-col flex-1">
-        <div class="flex items-center gap-2 mb-2">
-          <span class="text-[11px] font-bold uppercase tracking-wide bg-rbcyellow text-rbcnavy px-2 py-0.5 rounded">${offer.badge}</span>
-          <span class="text-[11px] text-slate-500 uppercase tracking-wide">${offer.category}</span>
+  let currentOffers = [];
+
+  function renderOffers(offersArray) {
+    const grid = document.getElementById('offers-grid');
+    if (!grid || !Array.isArray(offersArray)) return;
+
+    currentOffers = offersArray;
+    grid.innerHTML = ''; // clear skeleton/previous content
+
+    offersArray.forEach(offer => {
+      const card = document.createElement('div');
+      card.className = 'card-lift bg-white border border-slate-200 rounded-lg overflow-hidden flex flex-col';
+      card.innerHTML = `
+        <div class="h-32 bg-rbcskylight flex items-center justify-center text-5xl">
+          ${offer.icon}
         </div>
-        <h3 class="font-bold text-rbcnavy text-base leading-snug mb-1">${offer.title}</h3>
-        <p class="text-sm text-slate-600 mb-4 flex-1">${offer.summary}</p>
-        <button data-offer="${offer.id}" class="view-details-btn mt-auto w-full bg-rbcblue text-white text-sm font-semibold py-2.5 rounded hover:bg-rbcnavy transition">
-          View Details
-        </button>
-      </div>
-    `;
-    grid.appendChild(card);
-  });
+        <div class="p-5 flex flex-col flex-1">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-[11px] font-bold uppercase tracking-wide bg-rbcyellow text-rbcnavy px-2 py-0.5 rounded">${offer.badge}</span>
+            <span class="text-[11px] text-slate-500 uppercase tracking-wide">${offer.category}</span>
+          </div>
+          <h3 class="font-bold text-rbcnavy text-base leading-snug mb-1">${offer.title}</h3>
+          <p class="text-sm text-slate-600 mb-4 flex-1">${offer.summary}</p>
+          <button data-offer="${offer.id}" class="view-details-btn mt-auto w-full bg-rbcblue text-white text-sm font-semibold py-2.5 rounded hover:bg-rbcnavy transition">
+            View Details
+          </button>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  }
 
-  // ---- Modal logic ----
+  // Expose for Personalization / the Interactions SDK callback to call.
+  window.RBCPersonalization = { renderOffers };
+
+  // Fallback: render this file's own default offers so the page still
+  // looks correct if no personalization payload arrives. In production,
+  // this fallback call would normally live inside your SDK's
+  // "no eligible personalization content" branch instead of running
+  // unconditionally on load.
+  renderOffers(offers);
+
+  // ---- Modal logic (event delegation, since cards are re-rendered) ----
   const backdrop = document.getElementById('modal-backdrop');
   const modalContent = document.getElementById('modal-content');
 
+  document.getElementById('offers-grid').addEventListener('click', (e) => {
+    const btn = e.target.closest('.view-details-btn');
+    if (btn) openModal(btn.dataset.offer);
+  });
+
   function openModal(offerId) {
-    const offer = offers.find(o => o.id === offerId);
+    const offer = currentOffers.find(o => o.id === offerId);
     if (!offer) return;
 
     modalContent.innerHTML = `
@@ -267,10 +318,6 @@
     backdrop.classList.remove('flex');
     document.body.classList.remove('overflow-hidden');
   }
-
-  document.querySelectorAll('.view-details-btn').forEach(btn => {
-    btn.addEventListener('click', () => openModal(btn.dataset.offer));
-  });
 
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) closeModal();
